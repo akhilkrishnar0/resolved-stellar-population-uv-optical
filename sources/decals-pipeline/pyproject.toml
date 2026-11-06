@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "glsb-decals-pipeline"
+version = "0.2.0"
+description = "Prepare DECaLS image and inverse-variance products for GLSB analysis"
+requires-python = ">=3.9"
+dependencies = ["numpy", "astropy", "astroquery", "matplotlib", "requests"]
+[tool.setuptools]
+packages = ["decals_pipeline"]
+py-modules = ["decals_pipeline_class", "decals_query"]

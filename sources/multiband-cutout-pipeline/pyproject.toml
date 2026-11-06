@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "glsb-multiband-cutout-pipeline"
+version = "0.2.0"
+description = "GALEX and DECaLS multiband cutouts for GLSB galaxies"
+requires-python = ">=3.9"
+dependencies = ["numpy", "pandas", "matplotlib", "astropy", "astroquery"]
+[tool.setuptools]
+py-modules = ["multiband_cutout_pipeline", "psf_matching_pipeline", "galaxy_catalog"]
