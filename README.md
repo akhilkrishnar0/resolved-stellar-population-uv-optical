@@ -37,6 +37,51 @@ Every combined-workflow stage flag is literal: False never runs the stage. New D
 
 GALEX uses per-pixel rrhr weights. The intermediate crop defaults to each final angular size; set galex_crop_arcsec explicitly for a larger field. Supplied RA/Dec are used for GALEX processing, DECaLS downloads and final cropping. The imported GALEX downloader still resolves the galaxy name and searches within its existing 0.1-degree radius; archive coverage should be reviewed.
 
+## Review GALEX observations before stacking
+
+First download and produce the review table and full-field PNGs. `review_only=True`
+ends each galaxy after review, regardless of other stage flags; no stacks, DECaLS
+processing, cutouts or PSF matching are run.
+
+```python
+pipe.run(catalog, download_galex=True, review_only=True)
+```
+
+For already downloaded files use `pipe.run(catalog, review_only=True)`.
+Open `galex_review/<galaxy>/inputs.csv` and the PNGs in its FUV/NUV folders.
+Each PNG shows the original intensity image and matching rrhr response map.
+A red cross and cyan circle mark the supplied catalogue centre; an explicit label
+identifies centres outside the field. The circle is a visual locator, not a photometric
+aperture. Percentile/asinh stretching and display subsampling affect previews only.
+Missing response maps appear in the table and previews. Preview failures are recorded
+in the table and raised, so an incomplete review is not silently accepted.
+
+Give exact **intensity FITS filenames** from the table, separately for each galaxy:
+
+```python
+exclude = {"UGC9024": ["actual-observation-fd-int.fits"]}  # replace with real filename
+report = pipe.run(catalog, process_galex=True, galex_exclude=exclude,
+    split_decals=True, make_cutouts=True, do_plot=True, match_psf=True)
+```
+
+Use `exclude = {}` if nothing is rejected. Alternatively edit the automatically
+created `galex_review/exclusions.json`, for example a JSON object mapping each galaxy
+to a list of filenames. It is loaded on every GALEX review/processing run. An explicit
+`galex_exclude` entry overrides the saved list for that galaxy for this run only;
+`{"UGC9024": []}` explicitly clears that galaxy's saved exclusions for the run.
+Unknown filenames raise an error. Rejections are band-specific and do not delete files.
+Rejected intensity/response pairs never enter cropping or stacking. Empty selected
+bands or missing responses for selected images stop processing.
+
+The table starts with candidate/excluded rows and records stacked/no_overlap after
+successful stacking. Timestamped input-table snapshots and effective exclusions are
+also saved in run_reports. Existing stale crops are never included in the new stack.
+Review-only runs do not change existing stacks; after changing exclusions rerun
+`process_galex=True` and regenerate downstream cutouts/PSF products. Set
+`galex_previews=False` to skip PNG regeneration once visual review is complete.
+Only stack-input intensity/rrhr pairs are previewed; sky-background and background-
+subtracted archive products are not inputs to this stack and are not displayed.
+
 ## Optional PSF matching
 
 ```python
@@ -58,7 +103,7 @@ The imported module assumes Gaussian PSFs with FWHM FUV=4.2, NUV=5.3, g=1.3, r=1
 - sources/: original READMEs, package metadata and archived source files.
 - SOURCE_VERSIONS.json: exact upstream snapshots.
 
-All imported scientific modules are preserved from the source snapshots. The combined wrapper adds catalogue validation, explicit stage controls, strict band checks and run reporting. It calls the existing crop method directly so a failed crop cannot be swallowed by the old per-galaxy loop.
+Imported modules originate from the recorded source snapshots. GALEX cropping now also accepts an explicit selected input-pair list. The combined wrapper adds catalogue validation, explicit stage controls, strict band checks and run reporting. It calls the existing crop method directly so a failed crop cannot be swallowed by the old per-galaxy loop.
 
 ## Outputs
 
@@ -69,3 +114,4 @@ Existing paths are retained relative to base_dir: downloaded_galex/, decals_data
 DECaLS resampled science cutouts and native subimage inverse variances may have different grids; the existing code stops on mismatch. No automatic variance resampling or brick mosaicking has been introduced. Multiband RGB plotting still assumes aligned arrays, so plotting is off by default. Science cutouts retain native sampling, without a common grid. Response/coverage/inverse-variance cutouts are not yet carried through the multiband stage. Original hard-coded display scale bars and header-handling limitations remain documented in sources/. No physical-population outputs should be inferred from these preparation products alone.
 
 Source integration reviewed only. No tests, pipeline execution, archive downloads or scientific-output validation performed. No licence has been selected.
+

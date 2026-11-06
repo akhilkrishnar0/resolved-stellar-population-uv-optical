@@ -23,7 +23,8 @@ class ResolvedPopulationPipeline:
     def run(self, catalog, *, download_galex=False, process_galex=False,
             download_decals=False, split_decals=False, make_cutouts=True,
             do_plot=False, match_psf=False, target_fwhm=5.3, native_fwhm=None,
-            galex_crop_arcsec=None, decals_size_pixels=3000):
+            galex_crop_arcsec=None, decals_size_pixels=3000,
+            review_only=False, galex_previews=True, galex_exclude=None):
         """catalog columns: galaxy, ra_deg, dec_deg, distance (Mpc), size (arcsec).
         Every stage flag is literal: False never invokes that stage.
         Existing named products are overwritten by enabled stages.
@@ -45,6 +46,8 @@ class ResolvedPopulationPipeline:
         if galex_crop_arcsec is not None and (not np.isfinite(galex_crop_arcsec) or galex_crop_arcsec < table["size"].max()):
             raise ValueError("galex_crop_arcsec must cover every requested cutout")
         table["galaxy"] = names
+        from .galex_review import load_exclusions, prepare_review
+        exclusions = load_exclusions(self.base_dir, galex_exclude) if (download_galex or process_galex or review_only) else {}
         reports = self.base_dir/"run_reports"
         reports.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -54,7 +57,8 @@ class ResolvedPopulationPipeline:
                 download_decals=download_decals, split_decals=split_decals,
                 make_cutouts=make_cutouts, do_plot=do_plot, match_psf=match_psf,
                 target_fwhm=target_fwhm, native_fwhm=native_fwhm,
-                galex_crop_arcsec=galex_crop_arcsec, decals_size_pixels=decals_size_pixels)}
+                galex_crop_arcsec=galex_crop_arcsec, decals_size_pixels=decals_size_pixels,
+                review_only=review_only, galex_previews=galex_previews, galex_exclude=exclusions)}
         report_path = reports/f"{stamp}.json"
         def save():
             report_path.write_text(json.dumps(report, indent=2, default=str)+"\n")
@@ -66,23 +70,43 @@ class ResolvedPopulationPipeline:
                 if download_galex:
                     self.galex.run_download(name)
                     stages["galex_download"] = "complete"
+                if download_galex or process_galex or review_only:
+                    folder = self.galex.base_dir/name
+                    review_dir = self.base_dir/"galex_review"/name
+                    inventory = prepare_review(folder, review_dir, name, row.ra_deg, row.dec_deg,
+                        exclusions.get(name, []), previews=galex_previews)
+                    stages["galex_review"] = str(review_dir/"inputs.csv")
+                    if inventory.empty:
+                        raise FileNotFoundError(f"No GALEX intensity images for {name}")
+                    errors = inventory.loc[inventory.preview_error.ne(""), "filename"].tolist()
+                    if errors:
+                        raise ValueError(f"GALEX preview errors; see inputs.csv: {errors}")
+                if review_only:
+                    save()
+                    continue
                 if process_galex:
-                    # Use supplied coordinates for preprocessing as well as final cutouts.
-                    from galex_pipeline.io_utils import unzip_galex_files, organize_fits, image_pairs
                     from galex_pipeline.crop import crop_band
                     from galex_pipeline.stack import stack_band
-                    folder = self.galex.base_dir/name
-                    unzip_galex_files(folder)
-                    organize_fits(folder)
+                    selected = {}
                     for band in ("FUV", "NUV"):
-                        if not image_pairs(folder, band):
-                            raise FileNotFoundError(f"No {band} input pairs for {name}")
-                    for band in ("FUV", "NUV"):
+                        selected[band] = inventory.loc[(inventory.band == band) & ~inventory.excluded]
+                        if selected[band].empty:
+                            raise ValueError(f"No selected {band} images for {name}")
+                        missing = selected[band].loc[~selected[band].response_exists, "filename"].tolist()
+                        if missing:
+                            raise FileNotFoundError(f"Missing GALEX response maps: {missing}")
+                    for band, inputs in selected.items():
+                        raw_pairs = [(Path(r.intensity_path), Path(r.response_path)) for r in inputs.itertuples()]
                         pairs = crop_band(folder, band, row.ra_deg, row.dec_deg,
-                            float(galex_crop_arcsec or row.size)*u.arcsec)
+                            float(galex_crop_arcsec or row.size)*u.arcsec, pairs=raw_pairs)
                         if not pairs:
                             raise ValueError(f"No current {band} coverage for {name}")
                         stack_band(folder/"cropped", band, pairs=pairs)
+                        used = {p.name.replace("_crop.fits", ".fits") for p, _ in pairs}
+                        for i in inputs.index:
+                            inventory.at[i, "status"] = "stacked" if inventory.at[i, "filename"] in used else "no_overlap"
+                        inventory.to_csv(review_dir/"inputs.csv", index=False)
+                        inventory.to_csv(reports/f"{stamp}_{name}_galex_inputs.csv", index=False)
                     stages["galex_process"] = "complete"
                 if download_decals:
                     from decals_pipeline.query import DECaLSQuery
@@ -126,3 +150,4 @@ class ResolvedPopulationPipeline:
         finally:
             save()
         return report
+

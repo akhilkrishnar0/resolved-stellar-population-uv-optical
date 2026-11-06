@@ -8,12 +8,12 @@ from astropy.nddata.utils import Cutout2D, NoOverlapError
 from .io_utils import image_pairs
 
 
-def crop_band(base_folder, band, ra, dec, crop_size):
+def crop_band(base_folder, band, ra, dec, crop_size, pairs=None):
     folder = Path(base_folder)
     output = folder / 'cropped' / band
     output.mkdir(parents=True, exist_ok=True)
     paths = []
-    for intensity, response in image_pairs(folder, band):
+    for intensity, response in (image_pairs(folder, band) if pairs is None else pairs):
         data, header = fits.getdata(intensity, header=True)
         exposure, eheader = fits.getdata(response, header=True)
         wcs, ewcs = WCS(header).celestial, WCS(eheader).celestial
@@ -46,3 +46,4 @@ def crop_band(base_folder, band, ra, dec, crop_size):
         fits.writeto(epath, ecut, eh, overwrite=True)
         paths.append((ipath, epath))
     return paths
+
