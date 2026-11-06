@@ -51,8 +51,7 @@ For an unacceptable DECaLS cutout, replace/redownload it or remove that galaxy f
 the processing catalogue. There is one downloaded g/r/z cube per galaxy, not a list
 of individual DECaLS exposures to reject.
 
-PSF matching does not yet put all bands on a common WCS/pixel grid. Existing grid
-checks for DECaLS inverse variance still apply during processing. A 3000-pixel
+PSF matching does not yet put all bands on a common WCS/pixel grid. DECaLS inverse-variance splitting is optional and retains strict grid checks. A 3000-pixel
 DECaLS cutout at 0.262 arcsec/pixel spans about 786 arcsec; larger requested final
 cutouts will have uncovered optical edges.
 
@@ -123,6 +122,28 @@ Review-only runs do not change existing stacks; after changing exclusions rerun
 `galex_previews=False` to skip PNG regeneration once visual review is complete.
 Only stack-input intensity/rrhr pairs are previewed; sky-background and background-
 subtracted archive products are not inputs to this stack and are not displayed.
+
+## DECaLS science splitting and uncertainty maps
+
+The combined workflow now splits science images independently of inverse variance:
+
+```python
+pipe.run(catalog, split_decals=True, make_cutouts=False)
+```
+
+This fixes science-image splitting being blocked by an unexpected inverse-variance
+HDU layout. Both `run` and `process` default to `split_decals_invvar=False`. Existing
+inverse-variance output files are unchanged, not validated or refreshed, and the run
+report records `decals_inverse_variance: not_processed`. Science cutouts and Gaussian
+PSF matching do not consume those inverse-variance files.
+
+To request uncertainty-map splitting explicitly, pass `split_decals_invvar=True`.
+This retains the existing seven-HDU, shape and WCS checks and will still reject
+unsupported files. Supporting other layouts or multiple bricks requires inspecting
+their actual HDU headers and implementing the appropriate selection/mosaicking and
+variance propagation; disabling this check would not make the maps valid.
+The legacy `DecalsPipeline.save_split_data` retains its strict default; pass
+`include_invvar=False` there for science-only splitting.
 
 ## Optional PSF matching
 

@@ -88,7 +88,7 @@ class DecalsPipeline:
 
         with fits.open(fits_file) as hdul:
             img = hdul[0].data
-            if img.ndim != 3 or img.shape[0] != 3:
+            if img is None or img.ndim != 3 or img.shape[0] != 3:
                 raise ValueError("Expected a primary image cube shaped (3, ny, nx), ordered g/r/z")
             images = [img[i].copy() for i in range(3)]
             wcs = WCS(hdul[0].header).celestial
@@ -192,8 +192,10 @@ class DecalsPipeline:
         result.add_history('Split from original DECaLS product without resampling.')
         return result
 
-    def save_split_data(self, target):
-        self._check_image_invvar(target)
+    def save_split_data(self, target, include_invvar=True):
+        """Split science independently; inverse variance requires verified matching grids."""
+        if include_invvar:
+            self._check_image_invvar(target)
         g = self.clean_name(target)
         bands = ["g","r","z"]
     
@@ -210,7 +212,7 @@ class DecalsPipeline:
         with fits.open(fits_file) as hdul:
             img = hdul[0].data
             header = hdul[0].header
-            if img.ndim != 3 or img.shape[0] != 3:
+            if img is None or img.ndim != 3 or img.shape[0] != 3:
                 raise ValueError("Expected image cube (3, ny, nx) in g/r/z order")
     
             for i, band in enumerate(bands):
@@ -221,6 +223,10 @@ class DecalsPipeline:
                 out = out_img / f"{g}_{band}.fits"
                 fits.writeto(out, data, header=h, overwrite=True)
     
+        if not include_invvar:
+            print(f"Saved split science images for {g}; inverse variance not processed. Existing inverse-variance outputs, if any, are unchanged and not validated by this run.")
+            return
+
         # ---------- INVVAR ----------
         with fits.open(invvar_file) as hdul:
             invs = [hdul[2].data, hdul[4].data, hdul[6].data]
@@ -268,3 +274,4 @@ class DecalsPipeline:
                 self.save_split_data(t)
             if do_psf_split:
                 self.split_psf(t)
+

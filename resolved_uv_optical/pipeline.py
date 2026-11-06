@@ -31,19 +31,20 @@ class ResolvedPopulationPipeline:
             decals_size_pixels=size)
 
     def process(self, catalog, *, galex_exclude=None, do_plot=True,
-                match_psf=True, target_fwhm=5.3, native_fwhm=None):
+                match_psf=True, target_fwhm=5.3, native_fwhm=None, split_decals_invvar=False):
         """Step 3: process locally reviewed data; never download."""
         return self.run(catalog, process_galex=True, split_decals=True,
             make_cutouts=True, do_plot=do_plot, match_psf=match_psf,
             target_fwhm=target_fwhm, native_fwhm=native_fwhm,
-            galex_exclude=galex_exclude, galex_previews=False)
+            galex_exclude=galex_exclude, galex_previews=False,
+            split_decals_invvar=split_decals_invvar)
 
     def run(self, catalog, *, download_galex=False, process_galex=False,
             download_decals=False, split_decals=False, make_cutouts=True,
             do_plot=False, match_psf=False, target_fwhm=5.3, native_fwhm=None,
             galex_crop_arcsec=None, decals_size_pixels=3000,
             review_only=False, galex_previews=True, galex_exclude=None,
-            decals_review_only=False):
+            decals_review_only=False, split_decals_invvar=False):
         """catalog columns: galaxy, ra_deg, dec_deg, distance (Mpc), size (arcsec).
         Every stage flag is literal: False never invokes that stage.
         Existing named products are overwritten by enabled stages.
@@ -80,7 +81,7 @@ class ResolvedPopulationPipeline:
                 target_fwhm=target_fwhm, native_fwhm=native_fwhm,
                 galex_crop_arcsec=galex_crop_arcsec, decals_size_pixels=decals_size_pixels,
                 review_only=review_only, galex_previews=galex_previews, galex_exclude=exclusions,
-                decals_review_only=decals_review_only)}
+                decals_review_only=decals_review_only, split_decals_invvar=split_decals_invvar)}
         report_path = reports/f"{stamp}.json"
         def save():
             report_path.write_text(json.dumps(report, indent=2, default=str)+"\n")
@@ -143,8 +144,9 @@ class ResolvedPopulationPipeline:
                     save()
                     continue
                 if split_decals:
-                    self.decals.save_split_data(name)
+                    self.decals.save_split_data(name, include_invvar=split_decals_invvar)
                     stages["decals_split"] = "complete"
+                    stages["decals_inverse_variance"] = "split_and_grid_checked" if split_decals_invvar else "not_processed"
                 if make_cutouts:
                     files = self.cutouts.get_files(name)
                     missing = [str(p) for p in files.values() if not p.is_file()]
