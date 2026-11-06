@@ -14,6 +14,48 @@ This is the shared home for the study's complete code as it is assembled. The cu
 
 Restart the kernel. This distribution replaces the three separate installations: uninstall galex_pipeline, glsb-decals-pipeline and glsb-multiband-cutout-pipeline first if installed, because their import modules overlap. Remove older same-named local Python files that shadow the package.
 
+## Recommended sequence: review both surveys, then process
+
+Run these cells separately, inspecting the files between steps:
+
+```python
+from resolved_uv_optical import ResolvedPopulationPipeline
+pipe = ResolvedPopulationPipeline()
+pipe.review_galex(catalog)  # download and review only
+```
+
+Inspect `galex_review/<galaxy>/inputs.csv` and FUV/NUV PNGs; enter rejected
+intensity filenames in `galex_review/exclusions.json` or pass them at processing.
+
+```python
+pipe.review_decals(catalog, size=3000)  # download and review only
+```
+
+Inspect `decals_review/<galaxy>/grz.png`: three science bands in one row with the
+catalogue centre marked. `files.csv` lists the downloaded science, inverse-variance
+and PSF products and their presence. The preview reads the science cube directly;
+it does not split images or require aligned inverse-variance grids. This is a visual
+science-image review, not validation of variance or PSF calibration.
+Use `download=False` in either review method to inspect existing local downloads.
+
+```python
+exclude = {"UGC9024": []}  # exact rejected GALEX intensity filenames
+report = pipe.process(catalog, galex_exclude=exclude)
+```
+
+Processing uses existing downloads: GALEX selection/cropping/stacking, DECaLS
+splitting, five-band cutouts, plots and Gaussian PSF matching. Saved GALEX exclusions
+are used when `galex_exclude` is omitted. Review and processing are separate calls;
+manual approval is your decision to run the next cell, not an automatic assessment.
+For an unacceptable DECaLS cutout, replace/redownload it or remove that galaxy from
+the processing catalogue. There is one downloaded g/r/z cube per galaxy, not a list
+of individual DECaLS exposures to reject.
+
+PSF matching does not yet put all bands on a common WCS/pixel grid. Existing grid
+checks for DECaLS inverse variance still apply during processing. A 3000-pixel
+DECaLS cutout at 0.262 arcsec/pixel spans about 786 arcsec; larger requested final
+cutouts will have uncovered optical edges.
+
 ## Use existing prepared images
 
 ```python
