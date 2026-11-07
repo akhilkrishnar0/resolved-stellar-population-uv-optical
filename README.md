@@ -314,3 +314,23 @@ calibration, extinction and R25 errors are not included. The figure labels the b
 as statistical SEM only. External FUV CSVs need `Sigma_SFR_error` in Msun/Gyr/pc²,
 or both `mean_flux_per_pix` and `mean_flux_sem`; missing errors produce a warning and
 an unshaded curve, never an invented error. Set `error_shade=False` to hide shading.
+
+
+## Resume DECaLS downloads after server errors
+
+```python
+pipe.review_decals(catalog, size=3000, download="missing")
+```
+
+This resumes the product set per galaxy, reusing nonempty local products (FITS
+structure is checked) and downloading missing/invalid ones. HTTP 408/429/500/502/503/504,
+connection failures, timeouts and interrupted HTTP chunks get up to three attempts.
+If all attempts fail, the error is raised and completed files remain available.
+There is no automatic change to size, pixel scale or survey layer.
+
+New downloads include a request-URL sidecar; a changed request is downloaded again.
+Older files without sidecars are reused with a notice: their requested centre, size
+and layer cannot be verified from saved request metadata. This is not a scientific
+coverage check. `download=True` still refreshes all products; `download=False` never
+downloads. A persistent HTTP 500 needs archive-side resolution or an explicitly
+chosen alternative request; retries cannot guarantee success.

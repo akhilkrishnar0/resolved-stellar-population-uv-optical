@@ -98,7 +98,9 @@ class ResolvedPopulationPipeline:
             galex_exclude=galex_exclude)
 
     def review_decals(self, catalog, *, download=True, size=3000):
-        """Step 2: download (optional), preview DECaLS g/r/z, then stop."""
+        """Download=True refreshes all, False is local-only, 'missing' resumes."""
+        if download not in (True, False, "missing"):
+            raise ValueError("download must be True, False or 'missing'")
         return self.run(catalog, download_decals=download, decals_review_only=True,
             decals_size_pixels=size)
 
@@ -205,7 +207,8 @@ class ResolvedPopulationPipeline:
                     stages["galex_process"] = "complete"
                 if download_decals:
                     from decals_pipeline.query import DECaLSQuery
-                    DECaLSQuery(output_dir=str(self.decals.download_dir), layer=self.decals.layer).query_region(
+                    DECaLSQuery(output_dir=str(self.decals.download_dir), layer=self.decals.layer,
+                        overwrite=download_decals != "missing").query_region(
                         SkyCoord(row.ra_deg, row.dec_deg, unit="deg"), size=decals_size_pixels,
                         download_type="all", galid=name)
                     stages["decals_download"] = "complete"
@@ -252,6 +255,7 @@ class ResolvedPopulationPipeline:
         finally:
             save()
         return report
+
 
 
 
