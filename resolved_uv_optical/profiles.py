@@ -507,8 +507,8 @@ def run_profiles(catalog, base_dir=".", *, input_dir=None,
                             where=np.isfinite(error),color=line.get_color(),alpha=shade_alpha,
                             linewidth=0,zorder=line.get_zorder()-1)
                 if error_shade:
-                    ax.text(.98,.02,"Shading: statistical SEM only",transform=ax.transAxes,
-                        ha="right",va="bottom",fontsize=8,color=".35")
+                    # ax.text(.98,.02,"Shading: statistical SEM only",transform=ax.transAxes,
+                    #     ha="right",va="bottom",fontsize=8,color=".35")
                 ax.axhline(SIGMA_SFR_THRESHOLD,color="k",ls="--",lw=2,zorder=0)
                 ax.axvline(1,color="k",ls=":",lw=2,zorder=0)
                 ax.text(.4,SIGMA_SFR_THRESHOLD*1.08,r"$\Sigma_{\rm SFR}=10^{-2}\;M_\odot\,{\rm Gyr^{-1}\,pc^{-2}}$",
