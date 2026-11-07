@@ -20,6 +20,73 @@ class ResolvedPopulationPipeline:
         self.cutouts = MultiBandCutoutPipeline(galex_dir=self.galex.base_dir,
             decals_dir=self.decals.base_dir/"outputs"/"images", out_dir=self.base_dir/"cutouts")
 
+    def mask_sources(self, catalog, *, per_galaxy=None, **settings):
+        """Mask PSF-matched bands and optionally subtract the residual UV background.
+
+        Geometry uses the uploaded script convention: PA from east toward north.
+        Manual coordinates are zero-based reference-image pixels.
+        """
+        from dataclasses import asdict
+        from .masking import MaskConfig, run_masking, get_path
+        table = catalog.to_pandas() if hasattr(catalog, "to_pandas") else pd.DataFrame(catalog).copy()
+        required = {"galaxy", "ra_deg", "dec_deg"}
+        if table.empty or not required.issubset(table.columns):
+            raise ValueError("Masking needs galaxy, ra_deg and dec_deg columns")
+        names = table.galaxy.astype(str).str.replace(" ", "", regex=False)
+        if table.galaxy.isna().any() or names.duplicated().any() or any(n in ("", ".", "..") or "/" in n or "\\" in n for n in names):
+            raise ValueError("Invalid or duplicate galaxy names")
+        per_galaxy = {} if per_galaxy is None else per_galaxy
+        unknown = set(per_galaxy)-set(names)
+        if unknown:
+            raise ValueError(f"Unknown per_galaxy names: {sorted(unknown)}")
+        configs = []
+        for name, row in zip(names, table.itertuples(index=False)):
+            ra, dec = float(row.ra_deg), float(row.dec_deg)
+            if not np.isfinite([ra, dec]).all() or not 0 <= ra < 360 or not -90 <= dec <= 90:
+                raise ValueError(f"Invalid centre for {name}")
+            options = dict(settings)
+            options.update(per_galaxy.get(name, {}))
+            reserved = {"base_dir", "out_dir", "galaxy", "center_ra", "center_dec"} & set(options)
+            if reserved:
+                raise ValueError(f"Use the catalogue/base_dir for {sorted(reserved)}")
+            if options.get("protect_galaxy", True):
+                for key in ("galaxy_sma_arcsec", "galaxy_smb_arcsec", "galaxy_pa_deg"):
+                    if key not in options or options[key] is None or not np.isfinite(options[key]):
+                        raise ValueError(f"Supply {key} for {name}, or explicitly set protect_galaxy=False")
+                if min(options["galaxy_sma_arcsec"], options["galaxy_smb_arcsec"]) <= 0:
+                    raise ValueError("Protected semiaxes must be positive")
+            options.setdefault("file_pattern", "{band}_psfmatch.fits")
+            config = MaskConfig(base_dir=self.cutouts.out_dir/name,
+                out_dir=self.base_dir/"masked"/name, galaxy=name,
+                center_ra=ra, center_dec=dec, **options)
+            if not 0 <= config.bg_inner_frac < 1 or config.bg_statistic not in ("mean", "median"):
+                raise ValueError("Invalid background settings")
+            missing = [str(get_path(config, b)) for b in set(config.bands) | {config.reference_band} if not get_path(config, b).is_file()]
+            if missing:
+                raise FileNotFoundError("Missing masking inputs: " + ", ".join(missing))
+            configs.append(config)
+        reports = {}
+        for config in configs:
+            path = config.out_dir/"masking_report.json"
+            report = {"galaxy": config.galaxy, "status": "running", "settings": asdict(config)}
+            def save_report():
+                path.write_text(json.dumps(report, indent=2, default=str)+"\n")
+            save_report()
+            try:
+                result = run_masking(config)
+                report.update(status="complete", stats=result["stats"], saved=result["saved"],
+                    source_table_csv=result["source_table_csv"], reference_mask_fits=result["reference_mask_fits"])
+                if any(p["background_status"].startswith("background_failed") for p in result["saved"]):
+                    report["status"] = "background_failed"
+                    raise ValueError(f"Insufficient background pixels for {config.galaxy}; inspect masking_report.json")
+            except Exception as exc:
+                report.update(status="failed", error=f"{type(exc).__name__}: {exc}")
+                raise
+            finally:
+                save_report()
+            reports[config.galaxy] = report
+        return reports
+
     def review_galex(self, catalog, *, download=True, galex_exclude=None):
         """Step 1: download (optional), preview GALEX, then stop."""
         return self.run(catalog, download_galex=download, review_only=True,
@@ -180,4 +247,5 @@ class ResolvedPopulationPipeline:
         finally:
             save()
         return report
+
 

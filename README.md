@@ -4,7 +4,7 @@ Combined codebase for resolved-scale galaxy studies using GALEX FUV/NUV and DECa
 
 ## Current scope
 
-This is the shared home for the study's complete code as it is assembled. The current imported code covers image preparation and approximate PSF matching. It does **not yet include** foreground masking, background modelling, extinction corrections, spatial binning, resolved photometry, stellar population fitting, stellar-mass/SFR maps, or scientific uncertainty propagation. Those original analysis codes must be added before calling this a complete population-analysis pipeline.
+This is the shared home for the study's complete code as it is assembled. The current code covers image preparation, approximate PSF matching, point-source masking and scalar residual UV-background subtraction. It does **not yet include** spatial background modelling, extinction corrections, spatial binning, resolved photometry, stellar population fitting, stellar-mass/SFR maps, or scientific uncertainty propagation. Those original analysis codes must be added before calling this a complete population-analysis pipeline.
 
 ## Install
 
@@ -154,6 +154,54 @@ report = pipe.run(catalog, make_cutouts=False, match_psf=True, do_plot=False,
 
 The imported module assumes Gaussian PSFs with FWHM FUV=4.2, NUV=5.3, g=1.3, r=1.2, z=1.1 arcsec. These are assumptions, not measurements for each observation. Supply native_fwhm as a band-to-FWHM dictionary for your data. Matching is opt-in. It does not align pixel grids or propagate variance; normalized convolution can fill masked holes. PSF outputs are named <band>_psfmatch.fits.
 
+## Mask sources and subtract residual UV background
+
+After PSF matching, use the supplied masking script through the combined class:
+
+```python
+mask_report = pipe.mask_sources(approved, protect_galaxy=False,
+    allow_dao_fallback=False, do_bgsub=True, make_plots=True)
+```
+
+This example deliberately disables the protected ellipse because measured galaxy
+geometries have not been supplied. DAO detections in the g-band reference are matched
+to Gaia DR3 objects passing the script's proper-motion/parallax SNR cuts. Inspect all
+masks, particularly inside the galaxy. This is not a complete background-galaxy mask;
+add manual apertures for unrelated objects that the star-selection step misses.
+
+For a protected region, provide measured `galaxy_sma_arcsec`, `galaxy_smb_arcsec` and
+`galaxy_pa_deg` via `per_galaxy={"NAME": {...}}`, or common keyword settings if appropriate.
+No galaxy dimensions are inferred from the cutout size. PA retains the uploaded
+script convention: **east toward north**, not the usual north-through-east catalogue
+PA; convert using `90 - PA_north_through_east` modulo 180 degrees. Semiaxes are arcseconds.
+Automatic masks avoid the protected region; manual masks override that protection.
+
+`manual_circles_refpix=[(x,y,r)]` and `manual_ellipses_refpix=[(x,y,a,b,theta_deg)]`
+are specified separately per galaxy in zero-based reference-image pixels; ellipse
+angles are from pixel +x toward +y. `per_galaxy` overrides common settings.
+
+Inputs default to `cutouts/<galaxy>/<band>_psfmatch.fits`. Outputs are separate under
+`masked/<galaxy>/`: masked science FITS, binary masks, source catalogue, diagnostic PNGs,
+background-subtracted FITS, and `masking_report.json` with settings and background statistics.
+Original inputs are preserved. The script maps the reference mask through WCS to each
+band's own grid; it does not reproject the science images onto a common grid.
+
+Background subtraction follows the supplied method: sigma-clipped scalar median of
+finite, unmasked pixels beyond 0.70 of the image-centred corner radius, FUV/NUV only.
+This region is weighted toward image corners, not a measured galaxy-free sky annulus.
+Check that it lies outside galaxy emission and inside valid coverage before using the
+result. Optical `*_bgsub.fits` files are unchanged masked copies, with `BGSUB=False`.
+Use `do_bgsub=False` for masking alone or change the supplied background settings.
+Insufficient background pixels raise an error in the wrapper; any written copy has
+`BGSUB=False`. No uncertainty propagation is added.
+
+The original script is archived in `sources/masking/`. Integration fixes include
+missing-input checks, finite WCS handling, RA-wrap-safe offsets, masked-array clipping,
+and an undefined FITS background keyword instead of an invalid NaN header value.
+DAO-only fallback is now opt-in; without it a Gaia query failure stops processing.
+Gaia positions are not propagated to the image epoch. This post-PSF mask does not undo
+contaminant flux already spread by convolution, so inspect mask radii/stellar wings.
+
 ## Layout and provenance
 
 - galex_pipeline/: GALEX downloads, paired crops and response-weighted stacks.
@@ -177,4 +225,5 @@ Existing paths are retained relative to base_dir: downloaded_galex/, decals_data
 DECaLS resampled science cutouts and native subimage inverse variances may have different grids; the existing code stops on mismatch. No automatic variance resampling or brick mosaicking has been introduced. Multiband RGB plotting still assumes aligned arrays, so plotting is off by default. Science cutouts retain native sampling, without a common grid. Response/coverage/inverse-variance cutouts are not yet carried through the multiband stage. Original hard-coded display scale bars and header-handling limitations remain documented in sources/. No physical-population outputs should be inferred from these preparation products alone.
 
 Source integration reviewed only. No tests, pipeline execution, archive downloads or scientific-output validation performed. No licence has been selected.
+
 
