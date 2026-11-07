@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
-from astropy.stats import sigma_clipped_stats
+from astropy.stats import sigma_clipped_stats, sigma_clip
 from astropy.visualization import ImageNormalize, ZScaleInterval, AsinhStretch
 from astropy.wcs.utils import proj_plane_pixel_scales
 from photutils.aperture import CircularAperture
@@ -122,6 +122,7 @@ def radial_profile(data, wcs, center_sky, galaxy, band, distance_mpc, size_arcse
         mask = (rr >= r1) & (rr < r2) & np.isfinite(img)
         vals = img[mask]
 
+        n_clipped = int(sigma_clip(vals, sigma=3.0, maxiters=5).count()) if vals.size else 0
         if vals.size < 10:
             mean, median, std, sumflux = np.nan, np.nan, np.nan, np.nan
         else:
@@ -137,6 +138,8 @@ def radial_profile(data, wcs, center_sky, galaxy, band, distance_mpc, size_arcse
             "radius_arcsec": rmid_arcsec,
             "radius_kpc": rmid_arcsec * kpc_per_arcsec,
             "npix": int(vals.size),
+            "npix_clipped": n_clipped,
+            "mean_flux_sem": float(std)/np.sqrt(n_clipped) if n_clipped > 1 else np.nan,
             "mean_flux_per_pix": float(mean),
             "median_flux_per_pix": float(median),
             "std_flux_per_pix": float(std),
@@ -323,19 +326,23 @@ def clean_profile(df):
     columns = ["radius_kpc", "radius_arcsec", "mu_AB_arcsec2"]
     if not set(columns).issubset(df.columns):
         raise ValueError(f"Profile requires {columns}")
-    result = df[columns].apply(pd.to_numeric, errors="raise").replace([np.inf, -np.inf], np.nan).dropna()
+    optional = [c for c in ("Sigma_SFR_error", "mean_flux_per_pix", "mean_flux_sem") if c in df.columns]
+    result = df[columns+optional].apply(pd.to_numeric, errors="raise").replace([np.inf, -np.inf], np.nan).dropna(subset=columns)
     return result.sort_values("radius_kpc").drop_duplicates("radius_kpc")
 
 
 def run_profiles(catalog, base_dir=".", *, input_dir=None,
                  file_pattern="{galaxy}_{band}_pointmasked.fits", r25_overrides=None,
-                 external_fuv_profiles=None, diagnostics=True, show=False):
+                 external_fuv_profiles=None, diagnostics=True, show=False,
+                 error_shade=True, shade_alpha=0.18):
     """Measure profiles and save the notebook-style Sigma_SFR versus R/R25 plot.
 
     Input directory contains one subdirectory per galaxy. Original notebook
     external FUV tables for UGC12845/UGC1455 must be supplied explicitly if selected.
     Catalogue distances and angular sizes take precedence over notebook sample lists.
     """
+    if not np.isfinite(shade_alpha) or not 0 <= shade_alpha <= 1:
+        raise ValueError("shade_alpha must be between 0 and 1")
     base_dir = Path(base_dir).resolve()
     input_dir = base_dir/"masked" if input_dir is None else Path(input_dir).resolve()
     out = base_dir/"radial_profile_outputs"
@@ -369,7 +376,10 @@ def run_profiles(catalog, base_dir=".", *, input_dir=None,
     tab_dir.mkdir(parents=True, exist_ok=True)
     table.to_csv(tab_dir/"input_catalog.csv", index=False)
     report = {"status":"running", "input_dir":str(input_dir), "file_pattern":file_pattern,
-        "catalog":table.to_dict("records"), "n_annuli":30, "zeropoints":BAND_ZP,
+        "catalog":table.to_dict("records"), "n_annuli":30,
+        "error_shade":error_shade, "shade_alpha":shade_alpha,
+        "error_method":"clipped pixel std/sqrt(N_clipped), independent-pixel statistical SEM only",
+        "error_limits":"No background/calibration/covariance/R25 uncertainty; smoothed display envelope, not a fitted confidence interval", "zeropoints":BAND_ZP,
         "FUV_SFR_coefficient":FUV_SFR_COEFF, "threshold":SIGMA_SFR_THRESHOLD,
         "manual_fuv_background":MANUAL_FUV_BACKGROUND, "r25_overrides_kpc":overrides,
         "external_fuv_profiles":{k:str(v) for k,v in external.items()}, "skipped":{}}
@@ -412,6 +422,14 @@ def run_profiles(catalog, base_dir=".", *, input_dir=None,
                     prof["uv_background_std"] = bg_std
                     prof["uv_background_npix"] = bg_npix
                     prof["input_path"] = str(path)
+                    flux = prof.mean_flux_per_pix.to_numpy()
+                    sem = prof.mean_flux_sem.to_numpy()
+                    prof["mu_error_approx"] = np.divide(2.5/np.log(10)*sem,flux,
+                        out=np.full(len(prof),np.nan),where=flux>0)
+                    if band == "FUV":
+                        factor = float(mu_fuv_to_sigma_sfr(zp))/prof.pixscale_arcsec.to_numpy()**2
+                        prof["Sigma_SFR"] = factor*flux
+                        prof["Sigma_SFR_error"] = factor*sem
                     prof.to_csv(tab_dir/f"{galaxy}_{band}_radial_profile.csv",index=False)
                     bands[band] = clean_profile(prof)
                     profiles.append(prof)
@@ -449,8 +467,29 @@ def run_profiles(catalog, base_dir=".", *, input_dir=None,
                 if x is None:
                     report["skipped"][galaxy] = "Fewer than four usable FUV points"
                     continue
-                curves.append((galaxy,x,y))
-                curve_rows.append(pd.DataFrame({"galaxy":galaxy,"R_over_R25":x,"Sigma_SFR_Msun_Gyr_pc2":y}))
+                error = np.full_like(y,np.nan)
+                if error_shade:
+                    if "Sigma_SFR_error" in fuv:
+                        raw_error = fuv.Sigma_SFR_error.to_numpy()
+                    elif {"mean_flux_per_pix", "mean_flux_sem"}.issubset(fuv.columns):
+                        raw_error = np.divide(sigma_sfr*fuv.mean_flux_sem.to_numpy(), fuv.mean_flux_per_pix.to_numpy(),
+                            out=np.full(len(fuv),np.nan),where=fuv.mean_flux_per_pix.to_numpy()>0)
+                    else:
+                        raw_error = np.full(len(fuv),np.nan)
+                    raw_x = fuv.radius_kpc.to_numpy()/r25
+                    valid = np.isfinite(raw_error) & (raw_error>=0) & np.isfinite(raw_x)
+                    # Do not bridge missing uncertainty intervals or extrapolate errors.
+                    for indices in np.split(np.flatnonzero(valid), np.where(np.diff(np.flatnonzero(valid))>1)[0]+1):
+                        if len(indices)<2:
+                            continue
+                        inside = (x>=raw_x[indices[0]]) & (x<=raw_x[indices[-1]])
+                        error[inside] = np.maximum(0,PchipInterpolator(raw_x[indices],raw_error[indices])(x[inside]))
+                    if not np.isfinite(error).any():
+                        warnings.warn(f"{galaxy}: no usable uncertainty columns; line plotted without shading",RuntimeWarning)
+                        report.setdefault("unshaded",[]).append(galaxy)
+                curves.append((galaxy,x,y,error))
+                curve_rows.append(pd.DataFrame({"galaxy":galaxy,"R_over_R25":x,"Sigma_SFR_Msun_Gyr_pc2":y,
+                    "Sigma_SFR_error":error,"lower_1sigma":y-error,"upper_1sigma":y+error}))
             pd.concat(profiles,ignore_index=True).to_csv(tab_dir/"all_galaxies_all_bands_radial_profiles.csv",index=False)
             pd.DataFrame(r25_rows).to_csv(tab_dir/"R25_from_g_r_profiles.csv",index=False)
             pd.DataFrame(uv_rows).to_csv(tab_dir/"UV_radius_from_FUV_sigma_SFR.csv",index=False)
@@ -459,8 +498,17 @@ def run_profiles(catalog, base_dir=".", *, input_dir=None,
             pd.concat(curve_rows,ignore_index=True).to_csv(tab_dir/"FUV_sigma_SFR_plotted_curves.csv",index=False)
             fig,ax = plt.subplots(figsize=(7,5))
             try:
-                for galaxy,x,y in curves:
-                    ax.plot(x,y,lw=1.5,label=galaxy)
+                for galaxy,x,y,error in curves:
+                    line, = ax.plot(x,y,lw=1.5,label=galaxy)
+                    if error_shade:
+                        lower,upper = y-error,y+error
+                        # Retain the true bounds in CSV; clip only for log-axis display.
+                        ax.fill_between(x,np.maximum(lower,1e-3),np.maximum(upper,1e-3),
+                            where=np.isfinite(error),color=line.get_color(),alpha=shade_alpha,
+                            linewidth=0,zorder=line.get_zorder()-1)
+                if error_shade:
+                    ax.text(.98,.02,"Shading: statistical SEM only",transform=ax.transAxes,
+                        ha="right",va="bottom",fontsize=8,color=".35")
                 ax.axhline(SIGMA_SFR_THRESHOLD,color="k",ls="--",lw=2,zorder=0)
                 ax.axvline(1,color="k",ls=":",lw=2,zorder=0)
                 ax.text(.4,SIGMA_SFR_THRESHOLD*1.08,r"$\Sigma_{\rm SFR}=10^{-2}\;M_\odot\,{\rm Gyr^{-1}\,pc^{-2}}$",
@@ -484,3 +532,4 @@ def run_profiles(catalog, base_dir=".", *, input_dir=None,
     finally:
         save_report()
     return report
+

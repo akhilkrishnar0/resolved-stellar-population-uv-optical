@@ -290,3 +290,27 @@ Source integration reviewed only. No tests, pipeline execution, archive download
 
 
 
+
+
+## Profile uncertainty shading
+
+```python
+profiles = pipe.radial_profiles(approved, show=True, error_shade=True, shade_alpha=0.18)
+```
+
+Shading is enabled by default and matches each curve's colour. Each annular mean
+has a statistical standard-error estimate `std_clipped / sqrt(N_clipped)`, propagated
+linearly from FUV flux to Sigma_SFR. Profile CSVs retain `npix_clipped`, `mean_flux_sem`,
+`mu_error_approx`, and FUV `Sigma_SFR_error`. Central profile values are unchanged.
+For display, PCHIP interpolates the absolute errors between consecutive valid bins;
+they are drawn around the existing smoothed curve. This is a descriptive error band,
+not a confidence interval for the smoothing model. No uncertainty is extrapolated or
+bridged over missing-error bins. Plotted-curve CSVs retain actual lower/upper bounds;
+nonpositive lower bounds are clipped to the log-axis floor for display only.
+
+The independent-pixel assumption is approximate: PSF matching/reprojection correlate
+pixels and generally make this SEM underestimate uncertainty. Background-estimation,
+calibration, extinction and R25 errors are not included. The figure labels the band
+as statistical SEM only. External FUV CSVs need `Sigma_SFR_error` in Msun/Gyr/pc²,
+or both `mean_flux_per_pix` and `mean_flux_sem`; missing errors produce a warning and
+an unshaded curve, never an invented error. Set `error_shade=False` to hide shading.

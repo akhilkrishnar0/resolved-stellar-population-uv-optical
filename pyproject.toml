@@ -3,13 +3,14 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "resolved-stellar-population-uv-optical"
-version = "0.4.0"
+version = "0.4.1"
 description = "Combined GALEX and DECaLS workflow for resolved stellar population studies"
 requires-python = ">=3.9"
 dependencies = ["numpy", "pandas", "astropy", "astroquery", "matplotlib", "reproject", "requests", "scipy", "photutils"]
 [tool.setuptools]
 packages = ["resolved_uv_optical", "galex_pipeline", "decals_pipeline"]
 py-modules = ["galex_pipeline_class", "decals_pipeline_class", "decals_query", "multiband_cutout_pipeline", "psf_matching_pipeline", "galaxy_catalog"]
+
 
 
 
