@@ -334,3 +334,30 @@ and layer cannot be verified from saved request metadata. This is not a scientif
 coverage check. `download=True` still refreshes all products; `download=False` never
 downloads. A persistent HTTP 500 needs archive-side resolution or an explicitly
 chosen alternative request; retries cannot guarantee success.
+
+
+## Separate good/invalid DECaLS review PDFs
+
+```python
+status = pipe.review_decals_batch(catalog, size=3000, download="missing",
+    reject=[], circle_arcsec=60)
+```
+
+Per-galaxy failures are recorded and processing continues. `decals_review/good.pdf`
+and `invalid.pdf` contain g/r/z pages; a cyan 60-arcsec-radius circle and red cross
+mark the catalogue centre using FITS WCS. An outside-field centre is labelled;
+unavailable/unreadable FITS receive a status page, not a fabricated image/marker.
+`review_status.csv` records reasons. `good` means basic readable cube/finite centre
+checks passed, not scientific approval or complete coverage. `reject` manually moves
+galaxies to invalid. Any download/review error also puts the galaxy in invalid even
+if an older science file is available for display. Zero-valued finite pixels are not
+proof of exposure coverage. Inspect the pages before selecting an approved catalogue.
+Use `download=False` to produce PDFs from existing files without contacting the archive.
+
+The official DR9 description documents a 512-pixel cutout limit:
+https://www.legacysurvey.org/dr9/description/
+The package's historical 3000-pixel allowance is not a guarantee of service support.
+A persistent HTTP 500 does not identify its underlying cause. A separate 512-pixel
+request at 0.262 arcsec/pixel is only a 134-arcsec diagnostic field, not a replacement
+for the requested large science field. Large fields require appropriately mosaicked
+cutouts or native coadds; this batch review does not implement that mosaic.

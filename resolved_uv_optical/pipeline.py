@@ -97,6 +97,11 @@ class ResolvedPopulationPipeline:
         return self.run(catalog, download_galex=download, review_only=True,
             galex_exclude=galex_exclude)
 
+    def review_decals_batch(self, catalog, **options):
+        """Continue after failed galaxies and save good/invalid PDF review books."""
+        from .review_batch import review_batch
+        return review_batch(self, catalog, **options)
+
     def review_decals(self, catalog, *, download=True, size=3000):
         """Download=True refreshes all, False is local-only, 'missing' resumes."""
         if download not in (True, False, "missing"):
@@ -255,6 +260,7 @@ class ResolvedPopulationPipeline:
         finally:
             save()
         return report
+
 
 
 
