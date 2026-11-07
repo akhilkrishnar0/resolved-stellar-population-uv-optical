@@ -20,6 +20,11 @@ class ResolvedPopulationPipeline:
         self.cutouts = MultiBandCutoutPipeline(galex_dir=self.galex.base_dir,
             decals_dir=self.decals.base_dir/"outputs"/"images", out_dir=self.base_dir/"cutouts")
 
+    def radial_profiles(self, catalog, **options):
+        """Measure masked-image profiles and plot FUV Sigma_SFR against R/R25."""
+        from .profiles import run_profiles
+        return run_profiles(catalog, base_dir=self.base_dir, **options)
+
     def mask_sources(self, catalog, *, per_galaxy=None, **settings):
         """Mask PSF-matched bands and optionally subtract the residual UV background.
 
@@ -247,5 +252,6 @@ class ResolvedPopulationPipeline:
         finally:
             save()
         return report
+
 
 

@@ -4,7 +4,7 @@ Combined codebase for resolved-scale galaxy studies using GALEX FUV/NUV and DECa
 
 ## Current scope
 
-This is the shared home for the study's complete code as it is assembled. The current code covers image preparation, approximate PSF matching, point-source masking and scalar residual UV-background subtraction. It does **not yet include** spatial background modelling, extinction corrections, spatial binning, resolved photometry, stellar population fitting, stellar-mass/SFR maps, or scientific uncertainty propagation. Those original analysis codes must be added before calling this a complete population-analysis pipeline.
+This is the shared home for the study's complete code as it is assembled. The current code covers image preparation, approximate PSF matching, point-source masking and scalar residual UV-background subtraction. It also includes circular surface-brightness profiles and FUV-derived SFR-density profile plots from the supplied Sci3 notebook. It does **not yet include** spatial background modelling, extinction corrections, adaptive spatial binning, stellar population fitting, stellar-mass/SFR maps, or scientific uncertainty propagation. Those original analysis codes must be added before calling this a complete population-analysis pipeline.
 
 ## Install
 
@@ -202,6 +202,68 @@ DAO-only fallback is now opt-in; without it a Gaia query failure stops processin
 Gaia positions are not propagated to the image epoch. This post-PSF mask does not undo
 contaminant flux already spread by convolution, so inspect mask radii/stellar wings.
 
+## FUV SFR-density radial profiles
+
+Continue after masking with the same approved catalogue:
+
+```python
+profiles = pipe.radial_profiles(approved, show=True)
+```
+
+This creates `radial_profile_outputs/figures/all_galaxies_FUV_sigma_SFR_profiles.png`
+and a vector PDF, together with per-band aperture diagnostics and surface-brightness
+plots. Tables include each galaxy/band profile, the combined profiles, derived/used
+R25 values, UV radii, and the exact smoothed curves plotted. The profile report records
+catalogue values, inputs, adopted constants, overrides, failures and skipped galaxies.
+Set `diagnostics=False` to create only the combined figure and tables.
+
+The numerical functions are extracted from the uploaded
+`final-Sci3-SBP_fit_cleaned_with_final_panels.ipynb`; its original code cells are archived
+in `sources/profiles/notebook_source.py`. Unused image collages, PDF compilation,
+repeated sample lists, SIMBAD queries, and unrelated final-panel routines are omitted.
+
+Preserved choices:
+
+- 30 circular annuli to half the catalogue angular size; clipped means at sigma=3,
+  maxiters=5; at least 10 finite pixels per annulus.
+- AB zeropoints FUV=18.82, NUV=20.08 and optical=22.5 for counts/s and nanomaggies.
+- Notebook UV outer-region mean subtraction (inner fraction=0.70), followed by its
+  profile-level global clipped median subtraction for every band. This two-stage
+  background treatment is retained explicitly, not described as a new correction.
+- Manual FUV background UGC12845=0.00065 and UGC1455=0.00085 in native image units.
+- B transformation `mu_B = mu_g + 0.313*(mu_g-mu_r) + 0.227`; R25 is the first
+  smoothed crossing of 25 mag/arcsec² (600 samples, Gaussian sigma=2).
+- UGC9024 uses the notebook's manual R25=2.2 kpc. Additional explicit values can be
+  passed as `r25_overrides={"NAME": value_in_kpc}` and are recorded.
+- FUV SFR coefficient 1.4e-28, AB constants 21.572 and 48.6, yr-to-Gyr factor 1e9;
+  log-profile PCHIP on 500 samples followed by Gaussian sigma=2.
+- UV radius at the last crossing of 1e-2 Msun/Gyr/pc². The notebook's last-radius
+  result for profiles remaining above threshold is retained but flagged as a lower
+  limit, not a measured crossing.
+- Log axes R/R25=0.2–10 and Sigma_SFR=1e-3–20, threshold and R/R25=1 guide lines.
+
+Inputs default to `masked/<galaxy>/<galaxy>_<band>_pointmasked.fits`, **not** the
+background-subtracted copies; this avoids applying the masking step's UV background
+subtraction in addition to the notebook's own method. Already background-subtracted
+inputs with BGSUB set are rejected. Masks remain NaN; the old notebook read external
+`pointmasked_bgfilled` images, but no background-filling code/data was supplied.
+Therefore identical numerical curves to the historical screenshot are not promised.
+`input_dir` and `file_pattern` can select equivalent older files in per-galaxy folders.
+Catalogue centres/distances/sizes and galaxy order are used directly and recorded;
+there are no silently substituted sample coordinates or distances.
+
+For UGC12845/UGC1455, the original plot read external `original_*_FUV_radial_profile.csv`
+tables. If selecting these galaxies, provide their paths via
+`external_fuv_profiles={"UGC12845": "path/to/original_UGC12845_FUV_radial_profile.csv"}`
+(and likewise for UGC1455). Missing external tables are not silently replaced.
+
+Missing R25 values are reported and excluded from the normalized figure; physical
+kpc radii are never mixed with R/R25. Circular profiles use each band's native WCS
+and mean pixel scale. No inclination/extinction correction or uncertainty propagation
+is added; outer annuli with partial coverage and a global background estimate may
+bias faint extended emission. The table's pixel counts allow inspection of coverage.
+This addition was source-reviewed only; no pipeline or tests were executed.
+
 ## Layout and provenance
 
 - galex_pipeline/: GALEX downloads, paired crops and response-weighted stacks.
@@ -225,5 +287,6 @@ Existing paths are retained relative to base_dir: downloaded_galex/, decals_data
 DECaLS resampled science cutouts and native subimage inverse variances may have different grids; the existing code stops on mismatch. No automatic variance resampling or brick mosaicking has been introduced. Multiband RGB plotting still assumes aligned arrays, so plotting is off by default. Science cutouts retain native sampling, without a common grid. Response/coverage/inverse-variance cutouts are not yet carried through the multiband stage. Original hard-coded display scale bars and header-handling limitations remain documented in sources/. No physical-population outputs should be inferred from these preparation products alone.
 
 Source integration reviewed only. No tests, pipeline execution, archive downloads or scientific-output validation performed. No licence has been selected.
+
 
 
