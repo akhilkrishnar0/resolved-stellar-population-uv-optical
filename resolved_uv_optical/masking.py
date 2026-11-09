@@ -428,7 +428,12 @@ def run_masking(config: MaskConfig) -> Dict[str, Any]:
             bgsub_fits = config.out_dir / f"{config.galaxy}_{band}_pointmasked_bgsub.fits"
             header_bg = header_masked.copy()
 
-            if str(band).upper() in bgsub_bands:
+            if str(band).upper() in bgsub_bands and bool(header.get("BGSUB", False)):
+                bgsub = masked.copy()
+                header_bg["BGSUB"] = (True, "Background already corrected upstream")
+                header_bg["BGSRC"] = (str(header.get("BGMODE", "upstream")), "Upstream correction")
+                bg_status = "already_corrected_no_repeat"
+            elif str(band).upper() in bgsub_bands:
                 bg_data = data.copy().astype(float)
                 bg_data[band_mask] = np.nan
                 bg_value, bg_mean, bg_std, bg_npix = estimate_outer_annulus_background(
