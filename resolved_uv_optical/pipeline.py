@@ -7,6 +7,7 @@ import pandas as pd
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
+from astropy.nddata.utils import NoOverlapError
 from galex_pipeline import GalexPipeline
 from decals_pipeline import DecalsPipeline
 from multiband_cutout_pipeline import MultiBandCutoutPipeline
@@ -234,7 +235,16 @@ class ResolvedPopulationPipeline:
                         raise FileNotFoundError("Missing science images: "+", ".join(missing))
                     center = SkyCoord(row.ra_deg, row.dec_deg, unit="deg")
                     # Complete all crops before writing; do not silently accept a failed band.
-                    crops = {band:self.cutouts.crop(path, center, row.size) for band,path in files.items()}
+                    crops = {}
+                    for band, path in files.items():
+                        try:
+                            crops[band] = self.cutouts.crop(path, center, row.size)
+                        except NoOverlapError as exc:
+                            raise NoOverlapError(
+                                f"{name} [{band}]: {row.size:g}-arcsec cutout at "
+                                f"RA={row.ra_deg:.6f}, Dec={row.dec_deg:.6f} deg "
+                                f"does not overlap {path}"
+                            ) from exc
                     out = self.cutouts.out_dir/name
                     out.mkdir(parents=True, exist_ok=True)
                     for band,(data,header) in crops.items():
