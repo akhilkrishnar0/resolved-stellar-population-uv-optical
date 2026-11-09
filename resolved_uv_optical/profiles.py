@@ -22,7 +22,7 @@ BANDS = ["FUV", "NUV", "g", "r", "z"]
 BAND_ZP = {"FUV":18.82, "NUV":20.08, "g":22.5, "r":22.5, "z":22.5}
 SIGMA_SFR_THRESHOLD = 1e-2
 FUV_SFR_COEFF = 1.4e-28
-MANUAL_FUV_BACKGROUND = {"UGC12845":0.00065, "UGC1455":0.00085,"UGC1382":0.0002}
+MANUAL_FUV_BACKGROUND = {"UGC12845":0.00065, "UGC1455":0.00085,"UGC1382":0.02}
 R25_OVERRIDES_KPC = {"UGC9024":2.2}
 STYLE = {"font.size":11, "axes.labelsize":12, "axes.linewidth":1.1,
     "xtick.direction":"in", "ytick.direction":"in", "xtick.top":True,
