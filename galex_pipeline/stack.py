@@ -20,10 +20,14 @@ def stack_band(crop_folder, band, pairs=None):
     numerator, weight = np.zeros(shape), np.zeros(shape)
     coverage = np.zeros(shape, dtype=np.int32)
     nominal = []
+    modes = set()
+    corrections = set()
     ref_area = proj_plane_pixel_area(WCS(ref).celestial)
     for ipath, epath in pairs:
         data, header = fits.getdata(ipath, header=True)
         response = fits.getdata(epath)
+        modes.add(str(header.get('BGMODE', 'NONE')).upper())
+        corrections.add(bool(header.get('BGSUB', False)))
         if data.shape != response.shape:
             raise ValueError(f"Mismatched cropped pair: {ipath}")
         area = proj_plane_pixel_area(WCS(header).celestial)
@@ -41,17 +45,22 @@ def stack_band(crop_folder, band, pairs=None):
         coverage[good] += 1
         if 'EXPTIME' in header and np.isfinite(header['EXPTIME']):
             nominal.append(float(header['EXPTIME']))
+    if len(modes) != 1 or len(corrections) != 1:
+        raise ValueError(f'Mixed GALEX background states in {band} stack: {modes}')
     if not np.any(weight > 0):
         raise ValueError(f'No positive valid response in {band}; no stack written')
     out = np.full(shape, np.nan)
     np.divide(numerator, weight, out=out, where=weight > 0)
     header = WCS(ref).celestial.to_header()
     header['NCOMBINE'] = len(pairs)
+    header['BGMODE'] = next(iter(modes))
+    header['BGSUB'] = next(iter(corrections))
+    header['BGSTAGE'] = 'PRESTACK'
     header['WGHTTYPE'] = 'RRHR'
     header['PIPEVER'] = '0.2.0'
     if len(nominal) == len(pairs):
         header['TOTEXPT'] = (sum(nominal), 'Sum of nominal EXPTIME; NOT per-pixel exposure')
-    header.add_history('Stack = sum(reproject(int * rrhr)) / sum(reproject(rrhr)).')
+    header.add_history('Stack of preprocessed intensity = sum(reproject(int * rrhr)) / sum(reproject(rrhr)).')
     header.add_history('Invalid input pixels have zero weight; uncovered output is NaN.')
     for ipath, _ in pairs:
         header.add_history('Input: ' + Path(ipath).name)
