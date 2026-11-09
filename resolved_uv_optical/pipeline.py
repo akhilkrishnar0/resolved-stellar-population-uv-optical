@@ -111,24 +111,36 @@ class ResolvedPopulationPipeline:
             decals_size_pixels=size)
 
     def process(self, catalog, *, galex_exclude=None, do_plot=True,
-                match_psf=True, target_fwhm=5.3, native_fwhm=None, split_decals_invvar=False):
+                match_psf=True, target_fwhm=5.3, native_fwhm=None, split_decals_invvar=False,
+                background_mode="archive", local_mesh_arcmin=6.0,
+                local_galaxy_mask_factor=1.5):
         """Step 3: process locally reviewed data; never download."""
         return self.run(catalog, process_galex=True, split_decals=True,
             make_cutouts=True, do_plot=do_plot, match_psf=match_psf,
             target_fwhm=target_fwhm, native_fwhm=native_fwhm,
             galex_exclude=galex_exclude, galex_previews=False,
-            split_decals_invvar=split_decals_invvar)
+            split_decals_invvar=split_decals_invvar,
+            background_mode=background_mode, local_mesh_arcmin=local_mesh_arcmin,
+            local_galaxy_mask_factor=local_galaxy_mask_factor)
 
     def run(self, catalog, *, download_galex=False, process_galex=False,
             download_decals=False, split_decals=False, make_cutouts=True,
             do_plot=False, match_psf=False, target_fwhm=5.3, native_fwhm=None,
             galex_crop_arcsec=None, decals_size_pixels=3000,
             review_only=False, galex_previews=True, galex_exclude=None,
-            decals_review_only=False, split_decals_invvar=False):
+            decals_review_only=False, split_decals_invvar=False,
+            background_mode="archive", local_mesh_arcmin=6.0,
+            local_galaxy_mask_factor=1.5):
         """catalog columns: galaxy, ra_deg, dec_deg, distance (Mpc), size (arcsec).
         Every stage flag is literal: False never invokes that stage.
         Existing named products are overwritten by enabled stages.
         """
+        if background_mode not in ("none", "archive", "local"):
+            raise ValueError("background_mode must be none, archive or local")
+        if not np.isfinite(local_mesh_arcmin) or local_mesh_arcmin <= 0:
+            raise ValueError("local_mesh_arcmin must be positive")
+        if not np.isfinite(local_galaxy_mask_factor) or local_galaxy_mask_factor <= 1:
+            raise ValueError("local_galaxy_mask_factor must be >1")
         if decals_review_only and (review_only or download_galex or process_galex):
             raise ValueError("Run GALEX and DECaLS review separately")
         table = catalog.to_pandas() if hasattr(catalog, "to_pandas") else pd.DataFrame(catalog).copy()
@@ -161,7 +173,9 @@ class ResolvedPopulationPipeline:
                 target_fwhm=target_fwhm, native_fwhm=native_fwhm,
                 galex_crop_arcsec=galex_crop_arcsec, decals_size_pixels=decals_size_pixels,
                 review_only=review_only, galex_previews=galex_previews, galex_exclude=exclusions,
-                decals_review_only=decals_review_only, split_decals_invvar=split_decals_invvar)}
+                decals_review_only=decals_review_only, split_decals_invvar=split_decals_invvar,
+                background_mode=background_mode, local_mesh_arcmin=local_mesh_arcmin,
+                local_galaxy_mask_factor=local_galaxy_mask_factor)}
         report_path = reports/f"{stamp}.json"
         def save():
             report_path.write_text(json.dumps(report, indent=2, default=str)+"\n")
@@ -201,7 +215,9 @@ class ResolvedPopulationPipeline:
                     for band, inputs in selected.items():
                         raw_pairs = [(Path(r.intensity_path), Path(r.response_path)) for r in inputs.itertuples()]
                         pairs = crop_band(folder, band, row.ra_deg, row.dec_deg,
-                            float(galex_crop_arcsec or row.size)*u.arcsec, pairs=raw_pairs)
+                            float(galex_crop_arcsec or row.size)*u.arcsec, pairs=raw_pairs,
+                            background_mode=background_mode, local_mesh_arcmin=local_mesh_arcmin,
+                            local_galaxy_mask_factor=local_galaxy_mask_factor)
                         if not pairs:
                             raise ValueError(f"No current {band} coverage for {name}")
                         stack_band(folder/"cropped", band, pairs=pairs)
