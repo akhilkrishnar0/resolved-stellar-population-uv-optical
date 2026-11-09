@@ -97,7 +97,8 @@ def mu_from_mean(mean_flux_per_pix, pixarea_arcsec2, zp):
     mu[ok] = zp - 2.5 * np.log10(flux_arcsec2[ok])
     return mu
 
-def radial_profile(data, wcs, center_sky, galaxy, band, distance_mpc, size_arcsec, n_annuli=30):
+def radial_profile(data, wcs, center_sky, galaxy, band, distance_mpc, size_arcsec, n_annuli=30,
+                   subtract_background=True):
     """Measure circular radial profiles in fixed-width annuli."""
     pixscale = pixscale_arcsec(wcs)
     pixarea = pixscale ** 2
@@ -112,7 +113,7 @@ def radial_profile(data, wcs, center_sky, galaxy, band, distance_mpc, size_arcse
 
     # Preserve the original profile-level background treatment.
     bkg, bkg_std = estimate_background(data)
-    img = data - bkg
+    img = data - bkg if subtract_background else np.asarray(data, dtype=float)
 
     rows = []
     kpc_per_arcsec = distance_mpc * 1000.0 / 206265.0
@@ -399,24 +400,26 @@ def run_profiles(catalog, base_dir=".", *, input_dir=None,
                     data, hdr, wcs = get_data_wcs(path)
                     if not np.isfinite(data).any():
                         raise ValueError(f"No finite data: {path}")
-                    if hdr.get("BGSUB", False) not in (False, 0, "", None):
-                        raise ValueError(f"Use pre-background-subtraction masked inputs to preserve notebook treatment: {path}")
+                    precorrected = bool(hdr.get("BGSUB", False)) and band in ("FUV", "NUV")
                     x0, y0 = wcs.world_to_pixel(center)
                     if not np.isfinite([x0,y0]).all() or not 0 <= x0 < data.shape[1] or not 0 <= y0 < data.shape[0]:
                         raise ValueError(f"Catalogue centre outside {path}")
                     bg_mean = bg_median = bg_std = np.nan
                     bg_npix = 0
-                    if band in ("FUV", "NUV"):
+                    if band in ("FUV", "NUV") and not precorrected:
                         if band == "FUV" and galaxy in MANUAL_FUV_BACKGROUND:
                             bg_mean = bg_median = MANUAL_FUV_BACKGROUND[galaxy]
                             bg_std = 0.0
                             data = data-bg_mean
                         else:
                             data,bg_mean,bg_median,bg_std,bg_npix = subtract_uv_background(data, (x0,y0), inner_frac=.70, sigma=3.0)
-                    prof,x0,y0,edges = radial_profile(data,wcs,center,galaxy,band,row.distance,row.size)
+                    prof,x0,y0,edges = radial_profile(data,wcs,center,galaxy,band,row.distance,row.size,
+                                                     subtract_background=(band not in ("FUV", "NUV")))
                     mode,zp = unit_mode(hdr,band)
                     prof["mu_AB_arcsec2"] = mu_from_mean(prof.mean_flux_per_pix.to_numpy(),prof.pixscale_arcsec.to_numpy()**2,zp)
                     prof["zeropoint_used"], prof["flux_unit_assumed"] = zp,mode
+                    prof["prestack_background_mode"] = str(hdr.get("BGMODE", "unknown"))
+                    prof["prestack_background_applied"] = bool(precorrected)
                     prof["uv_background_mean_subtracted"] = bg_mean
                     prof["uv_background_median"] = bg_median
                     prof["uv_background_std"] = bg_std
