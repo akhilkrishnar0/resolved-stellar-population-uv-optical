@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "resolved-stellar-population-uv-optical"
-version = "0.4.3"
+version = "0.4.4"
 description = "Combined GALEX and DECaLS workflow for resolved stellar population studies"
 requires-python = ">=3.9"
 dependencies = ["numpy", "pandas", "astropy", "astroquery", "matplotlib", "reproject", "requests", "scipy", "photutils"]
