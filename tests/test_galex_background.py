@@ -57,14 +57,17 @@ def test_missing_archive_fails_instead_of_stacking_raw(tmp_path):
 
 def test_local_residual_removal_and_original_preserved(tmp_path):
     paths = _make_pair(tmp_path, 'obs1-fd', shape=(256, 256))
-    archive = fits.getdata(paths['intbgsub'])
-    fits.writeto(paths['intbgsub'], archive + 0.04, fits.getheader(paths['intbgsub']), overwrite=True)
+    # Sky-only test field: remove the synthetic 0.05 constant source term
+    # before inserting a known 0.04 residual background.
+    archive = fits.getdata(paths['intbgsub']) - 0.05
+    fits.writeto(paths['intbgsub'], archive + 0.04,
+                 fits.getheader(paths['intbgsub']), overwrite=True)
     corrected, model, report = prepare_background(
         paths['int'], paths['rrhr'], mode='local',
         center=SkyCoord(211.668958, 22.070111, unit='deg'),
         galaxy_mask_radius_arcsec=35, mesh_arcmin=0.5)
     assert np.isfinite(model).any()
-    assert abs(np.nanmedian(corrected) - 0.05) < 0.015
+    assert abs(np.nanmedian(corrected)) < 0.015
     np.testing.assert_allclose(fits.getdata(paths['intbgsub']), archive + 0.04)
     assert report['mode'] == 'local'
 
