@@ -14,6 +14,43 @@ This is the shared home for the study's complete code as it is assembled. The cu
 
 Restart the kernel. This distribution replaces the three separate installations: uninstall galex_pipeline, glsb-decals-pipeline and glsb-multiband-cutout-pipeline first if installed, because their import modules overlap. Remove older same-named local Python files that shadow the package.
 
+## Pre-stack GALEX background treatment
+
+Individual observations are background-corrected **before stacking**. The default
+`background_mode="archive"` stacks GALEX's `*-intbgsub.fits` products, matched
+to the original `*-int.fits` and `*-rrhr.fits` products. Missing archive
+background-subtracted images fail explicitly; the workflow does not silently
+fall back to uncorrected intensity. Original downloaded files are never edited.
+
+For a **spatially varying local residual correction**, run:
+
+```python
+report = pipe.process(
+    catalog, galex_exclude=exclude, background_mode="local",
+    local_mesh_arcmin=6.0, local_galaxy_mask_factor=1.5
+)
+```
+
+This mode starts from the archive-subtracted image, excludes a circular region
+of radius `local_galaxy_mask_factor * (GALEX crop diameter / 2)`, masks detected
+bright sources, then estimates a sigma-clipped, 2D median-mesh residual
+background on the *full original observation* before producing the cutout.
+Meshes are measured in angular units; 6 arcmin is a **starting setting for
+inspection, not a validated universal scale**. Insufficient unmasked sky/meshes
+cause a hard failure. Galaxy masks are conservative circles, not measured
+outer-UV boundaries: verify that they encompass all diffuse emission, and
+avoid fitting a local residual for inadequately sampled fields.
+
+Per-observation QA JSON is written to `downloaded_galex/<galaxy>/cropped/<band>/*-background.json`;
+local residual models are stored as `*-localbg_crop.fits`. The cropped intensity
+uses the existing `*-int_crop.fits` name, with FITS `BGSUB`, `BGMODE` and
+`BGSTAGE` provenance. The stack rejects mixed background modes and propagates
+these keywords. `background_mode="none"` reproduces the legacy raw-intensity
+choice for controlled comparisons. To compare background methods, run them in
+separate working directories because enabled stages overwrite named products.
+The local mode is **opt-in**: inspect per-observation residual maps and radial
+profiles before adopting it for science.
+
 ## GALEX image check before processing
 
 Use the companion [galex-image-check package](https://github.com/akhilkrishnar0/galex-image-check) to flag intbgsub observations with an invalid centre or less than 95% finite, nonzero coverage inside a 2.5-arcmin radius. It exports CSV, good/invalid PDFs and intensity-filename exclusions without deleting inputs. [Supplied reports and visual examples](https://github.com/akhilkrishnar0/galex-image-check#supplied-results-good-and-invalid-examples) are included in that repository.
@@ -212,12 +249,15 @@ background-subtracted FITS, and `masking_report.json` with settings and backgrou
 Original inputs are preserved. The script maps the reference mask through WCS to each
 band's own grid; it does not reproject the science images onto a common grid.
 
-Background subtraction follows the supplied method: sigma-clipped scalar median of
+For legacy inputs without FITS `BGSUB=True`, optional masking-stage background subtraction follows the supplied method: sigma-clipped scalar median of
 finite, unmasked pixels beyond 0.70 of the image-centred corner radius, FUV/NUV only.
 This region is weighted toward image corners, not a measured galaxy-free sky annulus.
 Check that it lies outside galaxy emission and inside valid coverage before using the
 result. Optical `*_bgsub.fits` files are unchanged masked copies, with `BGSUB=False`.
-Use `do_bgsub=False` for masking alone or change the supplied background settings.
+For upstream background-corrected UV inputs (`BGSUB=True`), the optional
+masking-stage output is an unchanged masked copy and no second subtraction is
+performed. Use `do_bgsub=False` for masking alone or change the supplied
+background settings.
 Insufficient background pixels raise an error in the wrapper; any written copy has
 `BGSUB=False`. No uncertainty propagation is added.
 
@@ -253,9 +293,11 @@ Preserved choices:
 - 30 circular annuli to half the catalogue angular size; clipped means at sigma=3,
   maxiters=5; at least 10 finite pixels per annulus.
 - AB zeropoints FUV=18.82, NUV=20.08 and optical=22.5 for counts/s and nanomaggies.
-- Notebook UV outer-region mean subtraction (inner fraction=0.70), followed by its
-  profile-level global clipped median subtraction for every band. This two-stage
-  background treatment is retained explicitly, not described as a new correction.
+- Legacy, uncorrected UV input: the notebook's outer-region mean subtraction
+  (inner fraction=0.70) is retained, but a second global median subtraction
+  is **not** performed for UV. Already corrected UV input (`BGSUB=True`)
+  receives no additional background subtraction in profiles. Optical bands
+  keep their existing global median subtraction.
 - Manual FUV background UGC12845=0.00065 and UGC1455=0.00085 in native image units.
 - B transformation `mu_B = mu_g + 0.313*(mu_g-mu_r) + 0.227`; R25 is the first
   smoothed crossing of 25 mag/arcsec² (600 samples, Gaussian sigma=2).
@@ -285,10 +327,10 @@ tables. If selecting these galaxies, provide their paths via
 
 Missing R25 values are reported and excluded from the normalized figure; physical
 kpc radii are never mixed with R/R25. Circular profiles use each band's native WCS
-and mean pixel scale. No inclination/extinction correction or uncertainty propagation
+and mean pixel scale. No inclination/extinction correction or full scientific uncertainty propagation
 is added; outer annuli with partial coverage and a global background estimate may
 bias faint extended emission. The table's pixel counts allow inspection of coverage.
-This addition was source-reviewed only; no pipeline or tests were executed.
+This radial-analysis addition has not been validated end-to-end on the science sample.
 
 ## Layout and provenance
 
