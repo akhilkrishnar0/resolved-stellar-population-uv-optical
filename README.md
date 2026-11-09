@@ -14,6 +14,32 @@ This is the shared home for the study's complete code as it is assembled. The cu
 
 Restart the kernel. This distribution replaces the three separate installations: uninstall galex_pipeline, glsb-decals-pipeline and glsb-multiband-cutout-pipeline first if installed, because their import modules overlap. Remove older same-named local Python files that shadow the package.
 
+## GALEX image check before processing
+
+Use the companion [galex-image-check package](https://github.com/akhilkrishnar0/galex-image-check) to flag intbgsub observations with an invalid centre or less than 95% finite, nonzero coverage inside a 2.5-arcmin radius. It exports CSV, good/invalid PDFs and intensity-filename exclusions without deleting inputs. [Supplied reports and visual examples](https://github.com/akhilkrishnar0/galex-image-check#supplied-results-good-and-invalid-examples) are included in that repository.
+
+```python
+%pip install git+https://github.com/akhilkrishnar0/galex-image-check.git
+```
+
+After downloading/unpacking GALEX data, using your existing catalogue:
+
+```python
+from galex_image_check import run_check,build_exclusions
+from resolved_uv_optical import ResolvedPopulationPipeline
+df=run_check(catalog,base_dir='downloaded_galex')
+exclude=build_exclusions(df)
+```
+
+Inspect both output PDFs and `missing_observations.csv`, merge any previous manual rejections into `exclude`, then process locally reviewed GALEX and DECaLS inputs:
+
+```python
+pipe=ResolvedPopulationPipeline(base_dir='.')
+report=pipe.process(catalog,galex_exclude=exclude)
+```
+
+The helper converts `-intbgsub.fits[.gz]` to `-int.fits`; the existing pipeline rejects these intensity/response pairs before cropping and stacking. Check that every intended stacking observation has an intbgsub counterpart. The zero-pixel rule is a screening heuristic, and a 2.5-arcmin circle does not validate larger cutouts. This optional check does not run automatically.
+
 ## Recommended sequence: review both surveys, then process
 
 Run these cells separately, inspecting the files between steps:
